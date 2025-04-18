@@ -9,6 +9,7 @@ This module implements various port scanning techniques:
 It supports scanning single hosts, multiple IP ranges, and can detect common services.
 """
 
+import os
 import socket
 import struct
 import time
@@ -20,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Set, Union, Optional, Tuple, Any
 from dataclasses import dataclass
 
-from src.modules.base import BaseModule
+from src.core.base_module import BaseModule
 from src.utils.network import (
     is_valid_ip, is_valid_domain, parse_target, get_ip_from_hostname,
     get_hostname_from_ip, is_port_open, get_ip_range

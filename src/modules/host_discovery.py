@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Set, Union, Optional, Tuple, Any
 from dataclasses import dataclass
 
-from src.modules.base import BaseModule
+from src.core.base_module import BaseModule
 from src.utils.network import (
     is_valid_ip, is_valid_domain, is_valid_ip_range, parse_target,
     get_ip_range, get_hostname_from_ip, ping, get_default_gateway
