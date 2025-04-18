@@ -1,28 +1,42 @@
 """
 Network utility functions.
+
+This module provides utility functions for network operations,
+including IP address, domain, URL, and port validation.
 """
 import socket
 import re
 import ipaddress
 import subprocess
 from typing import List, Dict, Any, Union, Optional, Tuple
+from urllib.parse import urlparse
 
 
-def is_valid_ip(ip: str) -> bool:
+def is_valid_ip(ip_address: str) -> bool:
     """
-    Check if a string is a valid IP address.
+    Check if a string is a valid IPv4 or IPv6 address.
     
     Args:
-        ip: IP address to check
+        ip_address: IP address to validate
         
     Returns:
-        True if valid, False otherwise
+        bool: True if valid IP address, False otherwise
     """
+    # Check for IPv4
     try:
-        ipaddress.ip_address(ip)
+        socket.inet_pton(socket.AF_INET, ip_address)
         return True
-    except ValueError:
-        return False
+    except socket.error:
+        pass
+    
+    # Check for IPv6
+    try:
+        socket.inet_pton(socket.AF_INET6, ip_address)
+        return True
+    except socket.error:
+        pass
+    
+    return False
 
 
 def is_valid_domain(domain: str) -> bool:
@@ -30,14 +44,25 @@ def is_valid_domain(domain: str) -> bool:
     Check if a string is a valid domain name.
     
     Args:
-        domain: Domain name to check
+        domain: Domain name to validate
         
     Returns:
-        True if valid, False otherwise
+        bool: True if valid domain name, False otherwise
     """
-    # Regular expression for domain validation
-    pattern = r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$"
-    return bool(re.match(pattern, domain, re.IGNORECASE))
+    if not domain:
+        return False
+    
+    # Basic domain validation pattern
+    pattern = r'^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$'
+    
+    if re.match(pattern, domain):
+        return True
+    
+    # Special case for localhost
+    if domain.lower() == 'localhost':
+        return True
+    
+    return False
 
 
 def is_valid_url(url: str) -> bool:
@@ -45,26 +70,33 @@ def is_valid_url(url: str) -> bool:
     Check if a string is a valid URL.
     
     Args:
-        url: URL to check
+        url: URL to validate
         
     Returns:
-        True if valid, False otherwise
+        bool: True if valid URL, False otherwise
     """
-    pattern = r"^(?:http|https)://(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9](?::[0-9]{1,5})?(?:/[^/\s]*)?"
-    return bool(re.match(pattern, url, re.IGNORECASE))
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except:
+        return False
 
 
-def is_valid_port(port: int) -> bool:
+def is_valid_port(port) -> bool:
     """
-    Check if a port number is valid.
+    Check if a number is a valid port number (1-65535).
     
     Args:
-        port: Port number to check
+        port: Port number to validate
         
     Returns:
-        True if valid, False otherwise
+        bool: True if valid port number, False otherwise
     """
-    return isinstance(port, int) and 1 <= port <= 65535
+    try:
+        port_num = int(port)
+        return 1 <= port_num <= 65535
+    except (ValueError, TypeError):
+        return False
 
 
 def is_valid_ip_range(ip_range: str) -> bool:
@@ -84,36 +116,43 @@ def is_valid_ip_range(ip_range: str) -> bool:
         return False
 
 
-def get_ip_from_hostname(hostname: str) -> Optional[str]:
+def get_hostname_from_ip(ip_address: str) -> str:
     """
-    Get IP address from hostname.
+    Get hostname from IP address using reverse DNS lookup.
     
     Args:
-        hostname: Hostname to resolve
+        ip_address: IP address to get hostname for
         
     Returns:
-        IP address or None if resolution fails
+        str: Hostname if found, empty string otherwise
     """
     try:
-        return socket.gethostbyname(hostname)
-    except socket.gaierror:
-        return None
-
-
-def get_hostname_from_ip(ip: str) -> Optional[str]:
-    """
-    Get hostname from IP address.
-    
-    Args:
-        ip: IP address to resolve
-        
-    Returns:
-        Hostname or None if resolution fails
-    """
-    try:
-        return socket.gethostbyaddr(ip)[0]
+        if is_valid_ip(ip_address):
+            hostname, _, _ = socket.gethostbyaddr(ip_address)
+            return hostname
     except (socket.herror, socket.gaierror):
-        return None
+        pass
+    
+    return ""
+
+
+def get_ip_from_hostname(hostname: str) -> str:
+    """
+    Get IP address from hostname using DNS lookup.
+    
+    Args:
+        hostname: Hostname to get IP address for
+        
+    Returns:
+        str: IP address if found, empty string otherwise
+    """
+    try:
+        if is_valid_domain(hostname):
+            return socket.gethostbyname(hostname)
+    except socket.gaierror:
+        pass
+    
+    return ""
 
 
 def expand_ip_range(ip_range: str) -> List[str]:
@@ -350,4 +389,140 @@ def get_default_gateway() -> Optional[str]:
     except Exception:
         pass
     
-    return None 
+    return None
+
+
+def parse_target(target: str) -> dict:
+    """
+    Parse target string into components (protocol, host, port).
+    
+    Args:
+        target: Target string (IP, domain, or URL)
+        
+    Returns:
+        dict: Dictionary with protocol, host, and port
+    """
+    result = {
+        'protocol': '',
+        'host': '',
+        'port': None
+    }
+    
+    # Check if it's a URL
+    if '//' in target or ':' in target and not target.startswith('['):
+        try:
+            parsed = urlparse(target if '://' in target else f'http://{target}')
+            result['protocol'] = parsed.scheme or 'http'
+            
+            # Handle port in netloc
+            host_port = parsed.netloc.split(':')
+            if len(host_port) > 1:
+                try:
+                    result['port'] = int(host_port[1])
+                except ValueError:
+                    pass
+            
+            # Handle IPv6 addresses
+            if parsed.netloc.startswith('['):
+                # Extract IPv6 address within brackets
+                ipv6_end = parsed.netloc.find(']')
+                if ipv6_end != -1:
+                    result['host'] = parsed.netloc[1:ipv6_end]
+            else:
+                result['host'] = host_port[0]
+                
+        except Exception:
+            # If URL parsing fails, treat as plain host
+            result['host'] = target
+    else:
+        # Handle host:port format
+        if ':' in target:
+            host_port = target.split(':')
+            result['host'] = host_port[0]
+            try:
+                result['port'] = int(host_port[1])
+            except ValueError:
+                pass
+        else:
+            result['host'] = target
+    
+    # Assign default ports based on protocol if port is missing
+    if not result['port'] and result['protocol']:
+        if result['protocol'] == 'http':
+            result['port'] = 80
+        elif result['protocol'] == 'https':
+            result['port'] = 443
+        elif result['protocol'] == 'ftp':
+            result['port'] = 21
+        elif result['protocol'] == 'ssh':
+            result['port'] = 22
+    
+    return result
+
+
+def is_port_open(host: str, port: int, timeout: float = 2.0) -> bool:
+    """
+    Check if a port is open on a host.
+    
+    Args:
+        host: Host to check
+        port: Port to check
+        timeout: Connection timeout in seconds
+        
+    Returns:
+        bool: True if port is open, False otherwise
+    """
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except:
+        return False
+
+
+def get_ip_range(cidr: str) -> list:
+    """
+    Get list of IP addresses from CIDR notation.
+    
+    Args:
+        cidr: CIDR notation string (e.g. '192.168.1.0/24')
+        
+    Returns:
+        list: List of IP addresses in range
+    """
+    try:
+        import ipaddress
+        return [str(ip) for ip in ipaddress.IPv4Network(cidr, strict=False)]
+    except ImportError:
+        # Fall back to manual calculation for small subnets
+        ip, subnet = cidr.split('/')
+        subnet = int(subnet)
+        
+        if subnet < 16:
+            # Too large, don't attempt
+            return []
+        
+        # Convert IP to integer
+        ip_int = 0
+        for i, octet in enumerate(reversed(ip.split('.'))):
+            ip_int += int(octet) * (256 ** i)
+        
+        # Calculate range
+        ip_count = 2 ** (32 - subnet)
+        base_ip = (ip_int // ip_count) * ip_count
+        
+        # Convert back to IP strings
+        result = []
+        for i in range(ip_count):
+            current = base_ip + i
+            octets = []
+            for j in range(4):
+                octets.insert(0, str(current % 256))
+                current = current // 256
+            result.append('.'.join(octets))
+        
+        return result
+    except Exception:
+        return [] 
